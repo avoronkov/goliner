@@ -17,3 +17,10 @@ More sophisticated example with modules usage:
 `$ goliner 'fmt.Println(strings.Join([]string{"foo", "bar"}, ", "))'`
 
 `foo, bar`
+
+You can explicitly specify imports:
+
+`$ goliner -i fmt -i strings 'fmt.Println(strings.Join([]string{"foo", "bar"}, ", "))'`
+
+`foo, bar`
+

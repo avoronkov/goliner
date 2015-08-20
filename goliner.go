@@ -14,22 +14,38 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 var (
-	head = `package main
+	pkgHead  = "package main"
+	mainHead = "func main() {"
+	tail     = "}"
 
-func main() {
-`
-	tail = `}`
+	imports Strings
 )
 
+func init() {
+	flag.Var(&imports, "i", "specify import explicitly")
+
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, "Usage: %s [ -i <import_path> ] <codeline> ...\n\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Run Golang one-liner.\n")
+	fmt.Fprintf(os.Stderr, "For example: %s 'fmt.Println(\"Hello world!\")'\n\n", os.Args[0])
+	flag.PrintDefaults()
+}
+
 func main() {
+	flag.Usage = usage
+	flag.Parse()
 	var (
 		err               error
 		file              *os.File
@@ -54,11 +70,15 @@ func main() {
 	}
 	if err == nil {
 		tempPath = file.Name()
-		fmt.Fprint(file, head)
-		for _, line := range os.Args[1:] {
+		fmt.Fprintln(file, pkgHead)
+		for _, imp := range imports {
+			fmt.Fprintf(file, "import \"%s\"\n", imp)
+		}
+		fmt.Fprintln(file, mainHead)
+		for _, line := range flag.Args() {
 			fmt.Fprintf(file, "%s\n", line)
 		}
-		fmt.Fprint(file, tail)
+		fmt.Fprintln(file, tail)
 		err = file.Close()
 	}
 	if err == nil {
@@ -76,4 +96,15 @@ func main() {
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		err = cmd.Run()
 	}
+}
+
+type Strings []string
+
+func (i Strings) String() string {
+	return strings.Join([]string(i), ", ")
+}
+
+func (i *Strings) Set(value string) error {
+	*i = append(*i, value)
+	return nil
 }
