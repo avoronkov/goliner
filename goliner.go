@@ -14,87 +14,91 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"strings"
+
+	goimports "golang.org/x/tools/imports"
 )
 
 var (
-	pkgHead  = "package main"
-	mainHead = "func main() {"
-	tail     = "}"
-
 	imports Strings
 )
 
 func init() {
+	flag.CommandLine.SetOutput(os.Stdout)
 	flag.Var(&imports, "i", "specify import explicitly")
 
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s [ -i <import_path> ] <codeline> ...\n\n", os.Args[0])
-	fmt.Fprintf(os.Stderr, "Run Golang one-liner.\n")
-	fmt.Fprintf(os.Stderr, "For example: %s 'fmt.Println(\"Hello world!\")'\n\n", os.Args[0])
+	fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [ -i <import_path> ] <codeline> ...\n\n", os.Args[0])
+	fmt.Fprintf(flag.CommandLine.Output(), "Run Golang one-liner.\n")
+	fmt.Fprintf(flag.CommandLine.Output(), "For example: %s 'fmt.Println(\"Hello world!\")'\n\n", os.Args[0])
 	flag.PrintDefaults()
+}
+
+func prepareSourceFile(imports, args []string) (path string, err error) {
+	const (
+		pkgHead  = "package main"
+		mainHead = "func main() {"
+		tail     = "}"
+	)
+
+	var buffer bytes.Buffer
+	fmt.Fprintln(&buffer, pkgHead)
+	for _, imp := range imports {
+		fmt.Fprintf(&buffer, "import \"%s\"\n", imp)
+	}
+	fmt.Fprintln(&buffer, mainHead)
+	for _, line := range flag.Args() {
+		fmt.Fprintf(&buffer, "%s\n", line)
+	}
+	fmt.Fprintln(&buffer, tail)
+
+	// run imports
+	code, err := goimports.Process("/dev/stdin", buffer.Bytes(), nil)
+	if err != nil {
+		return "", err
+	}
+
+	// save to file
+	file, err := os.CreateTemp("", "goliner.src")
+	if err != nil {
+		return "", err
+	}
+	fmt.Fprintf(file, "%s", code)
+	if err = file.Close(); err != nil {
+		os.Remove(file.Name())
+	}
+	path = file.Name() + ".go"
+	if err = os.Rename(file.Name(), path); err != nil {
+		os.Remove(file.Name())
+		return "", err
+	}
+	return
 }
 
 func main() {
 	flag.Usage = usage
 	flag.Parse()
-	var (
-		err               error
-		file              *os.File
-		tempPath, srcName string
-	)
-	defer func() {
-		if err == nil && tempPath != "" {
-			if e := os.Remove(tempPath); e != nil {
-				log.Printf("Warning: %v", e)
-			}
-		}
-		if err != nil {
-			log.Printf("Error1: %v\n", err)
-			os.Exit(1)
-		}
-	}()
-	if len(os.Args) < 2 {
-		err = fmt.Errorf("Not enough arguments")
+	if len(flag.Args()) < 1 {
+		log.Fatal("Not enough arguments")
 	}
-	if err == nil {
-		file, err = ioutil.TempFile("", "goliner.src")
+	path, err := prepareSourceFile(imports, flag.Args())
+	if err != nil {
+		log.Fatal(err)
 	}
-	if err == nil {
-		tempPath = file.Name()
-		fmt.Fprintln(file, pkgHead)
-		for _, imp := range imports {
-			fmt.Fprintf(file, "import \"%s\"\n", imp)
-		}
-		fmt.Fprintln(file, mainHead)
-		for _, line := range flag.Args() {
-			fmt.Fprintf(file, "%s\n", line)
-		}
-		fmt.Fprintln(file, tail)
-		err = file.Close()
-	}
-	if err == nil {
-		srcName = file.Name() + ".go"
-		err = os.Rename(file.Name(), srcName)
-	}
-	if err == nil {
-		tempPath = srcName
-		cmd := exec.Command("goimports", "-w", srcName)
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		err = cmd.Run()
-	}
-	if err == nil {
-		cmd := exec.Command("go", "run", srcName)
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		err = cmd.Run()
+	defer os.Remove(path)
+
+	cmd := exec.Command("go", "run", path)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err = cmd.Run(); err != nil {
+		log.Fatalf("Failed: %v", err)
 	}
 }
 
