@@ -55,7 +55,7 @@ func prepareSourceFile(imports, args []string) (path string, err error) {
 		fmt.Fprintf(&buffer, "import \"%s\"\n", imp)
 	}
 	fmt.Fprintln(&buffer, mainHead)
-	for _, line := range flag.Args() {
+	for _, line := range args {
 		fmt.Fprintf(&buffer, "%s\n", line)
 	}
 	fmt.Fprintln(&buffer, tail)
